@@ -1,0 +1,515 @@
+---
+title: "Project 1"
+author: "Lily Li Bruce Shao" 
+date: "2021/10/22"
+output: pdf_document
+---
+
+## Import the data
+```{r}
+housing <- read.csv("C:/Users/zishan/Desktop/house.csv")
+housing<-housing[which(housing$price<1500000),]
+colnames(housing)
+```
+## From the data description, we have confidence to assume that the house price is the response variable and the remaining factors (bedrooms, bathrooms, etc.) are explanatory factors. Meanwhile, our purpose of the project is to find a simple, convenient model that could help people roughly estimate the house price. Therefore, we decided to try using multiple linear regression model to determine the relationship, which is easy to understand and convenient to use.
+
+## Data Cleaning
+### Officially, the grade are defined (in description) to be high quality at 11 ~ 13, average quality at 7, and low quality at 1 ~ 3. To simplify the model, we categoize them into five more understandable categories: "low", "mid-low", "average", "mid-high", and "high".
+```{r}
+ranks <- cut(housing$grade, breaks = c(0,4,6,7,9,13), labels = c("low", "mid-low", "average", "mid-high","high"))
+ranks <- factor(ranks, order = TRUE, levels =c('low', 'mid-low', 'average', 'mid-high', 'high'))
+housing$grade <- ranks
+housing$grade<-factor(as.character(housing$grade), levels =c('low', 'mid-low', 'average', 'mid-high', 'high'))
+housing$floors<-as.factor(as.character(housing$floors))
+housing$condition<-as.factor(as.character(housing$condition))
+```
+
+### The yr_built are the year the house was built. The data finished collection in the May of 2015, therefore, we will use the 2015 minus the houses' building year to find the age of the house, which is presumably an explanatory variable of the houses' price. 
+```{r}
+housing$yr_built <- -(housing$yr_built - 2015) 
+colnames(housing)[colnames(housing) == "yr_built"] = "age"
+```
+
+### The sqft_living15 and sqft_lot15 are the square footage of nearby houses, which has no direct relationship with the house price, therefore, we cast both variables. Meanwhile, the lat(lattitude), long(longtitude), and zipcode also has ignorably amount of influence on the house price, especially these houses are in the same county (which has negligible difference geographically). Therefore, we cast them too. The date and id also has no direct influence on the response variable house price by common sense, so we also drop them.
+```{r}
+housing = housing[, -c(1,2,17,18,19,20,21)]
+```
+
+### The waterfront, the year of renovation, and the view, on the other hand, will also be cast since these measurements are included in the grade, condition, and age. Therefore, for simplicity consideration, we decided to cast these variables.
+```{r}
+housing = housing[, -c(7, 8, 14)]
+```
+
+### subsetting the sample housing data for better analysis
+```{r}
+set.seed(8); 
+#pick housing with low grade. 
+housing1<-housing[ which(housing$grade =="low"), ]
+housing2<-housing[ -which(housing$grade =="low"), ]
+#pick 90% from housing with low grade because we need more than 5 sample and we keep getting less than five if we do not put restriction. low proportion of the "low category data" --> subset housing1 by adding 90% to the low grdes there  
+housingsub1 <- housing1[sample(1:nrow(housing1), 0.9*nrow(housing1), replace=FALSE), ]
+#select data from all data 4% but exclude housing with low price.  
+# housing 2 is the other proportions with higher condition grades, pick 0.04
+housingsub2 <- housing2[sample(1:nrow(housing2), 0.04*nrow(housing2), replace=FALSE), ]
+#combination  
+housingsub<-rbind(housingsub1, housingsub2)
+summary(housingsub$grade)
+
+housingsub<-housingsub[-which(housingsub$condition == "1"),]
+#eliminate the 1 because we do not have 5 numbers there. The condition 1 has low numbers. 
+summary(housingsub$condition)
+```
+
+
+## EDA
+### In this part, we will compare each potential explanatory variables with the response variable to see if there is actually a concrete linear relationship we desire. If there is no or a weak correlation, then we will not include the variable in the model.
+
+### To draw the graph, we need to import ggplot2 package first
+```{r}
+library(ggplot2)
+```
+
+### Compare the house price and the bedroom numbers
+```{r}
+ggplot(housingsub, aes(x = as.factor(as.character(bedrooms)), y = price)) + 
+  geom_point() + 
+  labs(title = "House Price v.s. Bedroom Numbers", 
+       x = "Number of Bedrooms", y = "Housing Price") 
+```
+### comment: The scatterplot shows that the number of bedrooms and the housing price have moderate, positive, linear relationship between each other. There are no obvious outliers presented in the scatterplot.
+
+### Compare the house price and the bathroom numbers
+```{r}
+ggplot(housingsub, aes(x = as.factor(as.character(bathrooms)), y = price)) + 
+  geom_boxplot() + 
+  labs(title = "House Price v.s. Bathroom Numbers", 
+       x = "Number of Bathrooms", y = "Housing Price") 
+```
+### comment: The boxplot shows that, with increasing number of bathrooms, the average house price increases. The average bathroom number and the average house price have a strong, positive association. Although there are outliers existed, it does not undermine the overall increasing relationship of the chart.
+
+### Compare the house price and the living space (ft^2)
+```{r}
+ggplot(housingsub, aes(x = sqft_living, y = price)) + 
+  geom_point() + 
+  labs(title = "House Price v.s. Living Space", 
+       x = "Living Space (ft^2)", y = "Housing Price") 
+```
+### The living space and the housing price shows a moderately strong, posiitve, linear relationship between each other. With increasing living space, there are more outliers in the scatterplot. This means that, with increasing number of living space, the housing price increases with larger variance in the price.
+
+### Compare the house price and the size of the land space
+```{r}
+ggplot(housingsub, aes(x = sqft_lot, y = price)) + 
+  geom_point() + 
+  labs(title = "House Price v.s. Land space (ft^2)", 
+       x = "Land Space (ft^2)", y = "Housing Price") 
+```
+### comment: The house price and the land space shows irregular pattern, indicates that the land space and the housing price are no/weakly related with each other. 
+
+### Compare the house price and the floors
+```{r}
+ggplot(housingsub, aes(x = as.factor(as.character(floors)), y = price)) + 
+  geom_boxplot() + 
+  labs(title = "House Price v.s. Number of Floors", 
+       x = "Number of Floor", y = "Housing Price") 
+```
+### comment: With increasing number of floor, the average housing price generally increases. This indicates a moderate positive relationship between these two variables. There are outliers presented in the graph, especially at number of floor equals 1 and 2.
+
+### Compare the house price and the house condition
+```{r}
+ggplot(housingsub, aes(x = as.factor(as.character(condition)), y = price)) + 
+  geom_boxplot() + 
+  labs(title = "House Price v.s. House Condition", 
+       x = "House Condition", y = "Housing Price") 
+```
+### comment: with increasing number of floor, the average housing price shows slightly positive pattern. Meanwhile, the boxplot shows that there are significantly many outliers at house condition 3,4, and 5. The outliers could make the positive relationship less obvious. Therefore, the correlation between the House condition and the house price is likely be weak yet positive.
+
+### Compare the house price and the grades
+```{r}
+ggplot(housingsub, aes(reorder(x = as.factor(as.character(grade)), price), y = price)) + 
+  geom_boxplot() + 
+  labs(title = "House Price v.s. Grades", x = "Grades", y = "Housing Price")  
+```
+### comment: with increasing grade level, the average housing price increases and therefore the grade and house price have a positive relationship between each other. There are outliers existed in the boxplot, but they does not undermine the evident positive relationship.  %% could I answer like this?
+
+### Compare the house price and the square footage of the interior house space (above ground level)
+```{r}
+ggplot(housingsub, aes(x = sqft_above, y = price)) + 
+  geom_point() + 
+  labs(title = "House Price v.s. Interior House Space", 
+       x = "Interior House Space (ft^2)", y = "Housing Price") 
+```
+### The interior house space and the housing price shows a moderate strong, posiitve, linear relationship between each other. With increasing interior house space, there are more outliers in the scatterplot. This means that, with increasing number of living space, the housing price increases with larger variance in the price.
+
+### Compare the house price and the square footage of the interior housing space (below ground level)
+```{r}
+ggplot(housingsub, aes(x = sqft_basement, y = price)) + 
+  geom_point() + 
+  labs(title = "House Price v.s. Interior House Space (below the ground)", 
+       x = "Interior House Space below the ground (ft^2)", y = "Housing Price") 
+```
+### Comment: There is a moderately weak positive linear relationship between the interior space below the ground and the house price, along with outliers. However, most of the data concentrated in 0, which is the houses that does not have a basement. Therefore, the basement space is a good indicator of the house with basement, but it is not a universal indicator as there are only 38.64% of houses have the basement. For simplicity consideration, we cast the underground space away.
+```{r}
+# number of the basement
+a = nrow(subset(housing,sqft_basement > 0))
+b = nrow(housing)
+print(a/b)
+```
+
+### Compare the house price and the age of the house
+```{r}
+ggplot(housingsub, aes(x = age, y = price)) + 
+  geom_point() + 
+  labs(title = "House Price v.s. Age of the House", x = "Age of the House (year(s))", y = "Housing Price")
+```
+### comment: the scatterplot does not show any linearly changing pattern between housing price and the age of the house, indicating that they are poorly related with each other. There are outliers presented in the graph.
+
+
+## Simple linear regression model and interaction terms
+### In this part we will find the desirable terms for the multiple linear regression models between price and the explanatory factors, including the term concluded previously and the interaction term. Firstly, we construct simple linear regression models between the house price and every explanatory variables and check if 6 conditions of regression model is fitted. We will then apply the correlation matrix to find the interaction terms.
+
+### From the EDA, we know that the bedroom number, bathroom number, living space, number of floors, house condition, grade, and interior space above the ground are moderate or strong linearly related with the response variable (house price) and are applicable to all type of houses (universially applicable variables). Therefore, we could put these values in the model to see their performance in predicting the values.
+```{r}
+# Model 1
+data_M1 <- housingsub
+houseprice <- lm(formula = price ~ bedrooms + bathrooms + sqft_living + floors + condition + grade + sqft_above, data = data_M1)
+summary(houseprice)
+plot(houseprice)
+```
+### The R^2 in this case is 0.5899 (for this sample, could vary but always over 50%, usually R^2 is near 60%), which indicates that 58.99% of the total variance of the housing price predicted by the model using the bedrooms, bathrooms, living space, number of floors, house condition, grade, and interior living space above the ground. This indicates that the model predicts over the half of the variation of the local house price, which is an acceptable level for prediction.
+
+### However, the residual plot shows a cone shape, indicating that the model does not have a constant variance. Therefore, we need to transform the model to constant variance.
+```{r}
+houseprice2 <- lm(formula = log(price) ~ bedrooms + bathrooms + sqft_living + floors + condition + grade + sqft_above, data = housingsub)
+summary(houseprice2)
+plot(houseprice2)
+``` 
+
+### After determining how the housing price should be performed, we construct simple linear regression models for every explanatory variables
+### It is worth notifying that the house prices are collected and subsetted randomly and every house price is independent. There is no repetitive recording of the house price. Therefore, for all observations in the sample, the independence and randomness conditions are always satisfied.
+
+### SLR model of the bedrooms numbers and the log of the house price
+```{r}
+lm1 <- lm(formula = log(price) ~ bedrooms, data = housingsub)
+summary(lm1)
+plot(lm1$residuals ~ housingsub$bedrooms)
+abline(h=0, col="blue")
+```
+### Interpretation: The residual plots shows zero means as the errors is centered at zero (the model used least square method, which means the zero mean is always met). Meanwhile, the constant variance is also met as the variability of errors are approximately the same for all bedroom numbers. The bedroom number has a positive linear relationship according to the lm1 (linearity is fitted). Therefore, no further linear transformation is needed.
+
+### SLR model of the bathrooms numbers (categorical) and the log of the house price
+```{r}
+lm2 <- lm(formula = log(price) ~ bathrooms, data = housingsub)
+summary(lm2)
+plot(lm2$residuals ~ housingsub$bathrooms)
+abline(h=0, col="blue")
+```
+
+### SLR model of the living space and the log of the house price
+```{r}
+lm3 <- lm(formula = log(price) ~ sqft_living, data = housingsub)
+summary(lm3)
+plot(lm3$residuals~housingsub$sqft_living)
+abline(h=0, col="blue")
+```
+### Interpretation: The residual plots shows zero means as the errors is centered at zero (the model used least square method, which means the zero mean is always met). Meanwhile, the constant variance is also met as the variability of errors are approximately the same for all square footage of living space. The square footage of living space has a positive linear relationship given according to the lm3 (linearity is fitted). Therefore, no further linear transformation is needed.
+
+### SLR model of the number of floors (categorical) and the log of the house price
+```{r}
+lm4 <- lm(formula = log(price) ~ floors, data = housingsub)
+summary(lm4)
+plot(lm3$residuals~housingsub$floors)
+abline(h=0, col="blue")
+```
+
+### SLR model of the house condition (categorical) and the log of the house price
+```{r}
+lm5 <- lm(formula = log(price) ~ condition, data = housingsub)
+summary(lm5)
+plot(lm3$residuals~housingsub$condition)
+abline(h=0, col="blue")
+```
+
+
+### SLR model of the grade (categorical) and the log of the house price
+```{r}
+lm6 <- lm(formula = log(price) ~ grade, data = housingsub)
+summary(lm6)
+plot(lm3$residuals~housingsub$grade)
+abline(h=0, col="blue")
+```
+
+### SLR model of the bathrooms numbers and the log of the house price
+```{r}
+lm7 <- lm(formula = log(price) ~ log(sqft_above), data = housingsub)
+summary(lm7)
+plot(lm7$residuals~housingsub$sqft_above)
+abline(h=0, col="blue")
+```
+### Interpretation: The residual plots shows zero means as the errors is centered at zero (the model used least square method, which means the zero mean is always met). Meanwhile, the constant variance is also met as the variability of errors are approximately the same for all square footage of interrior living space above the ground. The lm7 summary indicates that there is a positive linear relationship between the interrior living space and the house price (linearity is fitted). Therefore, no further linear transformation is needed.
+
+
+## Final model: using BSS method
+### In this part, we will take all qualified variables into consideration and finding the best combination of these variables to construct the final model. To find the best combination, or subset, of the variable, we use the Best Subset Selection (BSS) method. We then use the analysis of variance test to find the best model.
+
+### Use the BSS method to find the combination with highest adjusted R^2 . In this case, we assume that the explanatory variables are independent to each other.
+```{r}
+# import the library "leaps"
+library(leaps)
+# construct the model BSShouse
+BSShouse <- regsubsets(log(price)~bedrooms+ sqft_living+ floors+ condition+ grade+ sqft_above, data = housingsub, nvmax= 17)
+plot(BSShouse, scale= "adjr2")
+SUMMARY<- summary(BSShouse)
+coef(BSShouse, which.max(SUMMARY$adjr2))
+``` 
+### We see that the subset with largest adjusted R^2 is the case that bedrooms, living space, number of floors, house condition, grade and interrior living space above the ground (all six explanatory variables) are chosen. So the model 1 should be as following:
+
+## Model 1: assuming no interaction terms
+```{r}
+# potential final model 1: for pure simplicity consideration
+M1<- lm(formula = log(price) ~ 
+          bedrooms + 
+          sqft_living + 
+          floors +
+          condition + 
+          grade + 
+          sqft_above, 
+        data = housingsub)
+summary(M1)
+``` 
+### The R^2 in this case is 0.5756, indicating that the model predicts about 60% of the total variance, which is good enough for approximation. Therefore, the first model is a potential choice for us. Reminder: we need to convert the response variable log(price) to price later on for convenience purpose.
+
+
+## Model 2: based on the correlation matrix of three quantitative variables, we consider to add interaction terms in the model 2
+### The correlation matrix indicates that we have three different interaciton terms, but we don't know the significance of every one of them. How much would they impact the model, adding new explanation to the variance of the house price? (Is there any significant relationship between the interaction term and the house price?) 
+
+
+### Correlation matrix: the first correlation matrix test only the relationship between quantitative variables
+```{r}
+cc <- cor(na.omit(housingsub[, c("sqft_living", "sqft_above" ,"bedrooms")]))
+cc
+```
+### The correlation matrix shows that the living space and the interrior living space have correlation value of 0.873 (greater than 0.5 and less than 0.9), indicating the need of a interaction term; the bedroom number and the living space have correlation value of 0.665, indicating the need of an interaction term; the bedroom number and the living space have a correlation of 0.544, indicating the need of an interaction term.
+
+### We created 3 models with increasing number of the interaction terms, the the M21 is the nested model of M22, Model 22 is the nest model of M23
+```{r}
+M21<- lm(formula = log(price) ~ bedrooms + sqft_living + floors +condition+ grade + sqft_above+ sqft_above*sqft_living , data = housingsub)
+summary(M21)
+``` 
+
+```{r}
+M22<- lm(formula = log(price) ~ bedrooms + sqft_living + floors +condition+ grade + sqft_above+ sqft_above*sqft_living + bedrooms* sqft_living , data = housingsub)
+summary(M22)
+```
+
+```{r}
+M23<- lm(formula = log(price) ~ bedrooms + sqft_living + floors +condition+ grade + sqft_above+ sqft_above*sqft_living + bedrooms* sqft_living+ bedrooms*sqft_above, data = housingsub)
+summary(M23)
+```
+
+### nested F test-> anova 
+### we need to compare M1-M21,M21-M22,M22-M23 to find which variable should be added
+```{r}
+anova(M21,M22,M23)
+```
+### 2nd row compare M22 with M21; 3rd row compare M23 with M22; model 22 is not better than model 21; fail to reject M21. This means that M23 is better than M22. Therefore, the remaining models are M21 and M23, we then compare them by anova test.
+```{r}
+# compare 23 with 21
+anova(M21,M23)
+```
+### By nested F-test, we fail to rejected M21 because the P-val in this case is 0.057, which is larger than 0.05. Therefore, we failed to reject the M21.
+### In this case, we decided to include only the interaction variable: sqft_living^sqft_above.
+### The M21 should be our model 2
+```{r}
+M2 <- M21
+```
+
+
+## Model 3: assuming interaction terms exist between categorical and numerical variables
+### BSS between numerical and categorical
+### because this compares the relationship between categorical and numerical, which means it cannot be computed by the correlation matrix, so we need to draw the plot between every categorical and numerical variables, since there are 3 categorical and 3 numerical variables, there are, in total, 9 interaction terms
+```{r}
+#Numeric vs qualitative 
+#model 3, we look at both quantattive and qualitative variables 
+M31<- lm(formula = log(price) ~ bedrooms  + sqft_living + floors +condition+ grade + sqft_above+ bedrooms*floors, data = housingsub)
+summary(M31)
+ggplot(housingsub, aes(x=floors, y=bedrooms))+geom_boxplot()
+```
+### Comment: In this case, the boxplot shows that, with increasing number of floors, the average bedroom number remain constant. This means the increase in the number of floors does not mean a conrresponding increase/decrease in the bedroom numbers, so we should not include this interaction term in the model.
+
+```{r}
+M32<- lm(formula = log(price) ~ bedrooms  + sqft_living + floors +condition+ grade + sqft_above+ bedrooms*condition, data = housingsub)
+summary(M32)
+ggplot(housingsub, aes(x=condition, y=bedrooms))+geom_boxplot()
+```
+### Comment: In this case, the boxplot shows that, with increasing index of condition, the average bedroom number changed slightly. This means the increase in the house condition does not mean an evident corresponding increase/decrease in the bedroom numbers, so we should not include this interaction term in the model. Meanwhile, the P-values of all categories of the interaction term is not significant, so we reject it.
+
+```{r}
+M33<- lm(formula = log(price) ~ bedrooms + sqft_living + floors +condition+ grade + sqft_above+ bedrooms*grade, data = housingsub)
+summary(M33)
+ggplot(housingsub, aes(x=grade, y=bedrooms))+geom_boxplot()
+```
+### Comment: In this case, the boxplot shows that, with increasing grades, the average living space fluctuates around the bedrooms of three, and there are no obvious outliers. Visually, the average bedroom numbers do increase with the grade but the increase is tiny considering the scale of the number of bedrooms, so we may not include this interaction term in the model.
+
+```{r}
+M34<- lm(formula = log(price) ~ bedrooms  + sqft_living + floors +condition+ grade + sqft_above+ sqft_living*floors, data = housingsub)
+summary(M34)
+ggplot(housingsub, aes(x=floors, y=sqft_living))+geom_boxplot()
+```
+### Comment: In this case, the boxplot shows that, with increasing number of floors, the average living space changed slightly. This means the increase in the number of floors have minor effect in the living space size, so we should not include this interaction term in the model.
+
+```{r}
+M35<- lm(formula = log(price) ~ bedrooms  + sqft_living + floors +condition+ grade + sqft_above+ sqft_living*condition, data = housingsub)
+summary(M35)
+ggplot(housingsub, aes(x=condition, y=sqft_living))+geom_boxplot()
+```
+### Comment: In this case, the boxplot shows that, with increasing index of house condition, the average living space changed slightly. This means the increase in the index of the house condition have minor effect in the living space size, so we should not include this interaction term in the model.
+
+```{r}
+M36<- lm(formula = log(price) ~ bedrooms  + sqft_living + floors +condition+ grade + sqft_above+ sqft_living*grade, data = housingsub)
+summary(M36)
+ggplot(housingsub, aes(x=grade, y=sqft_living))+geom_boxplot()
+```
+### Comment: In this case, the boxplot shows that, with increasing grades, the average living space increases steadily. This means the increase in the grades have a direct, evident, positive association with the living space, at the meantime, the P-value of sqft_living*grade is significant, which gives us strong evidence that the grade is effective in explaining the living space.
+
+```{r}
+M37<- lm(formula = log(price) ~ bedrooms  + sqft_living + floors +condition+ grade + sqft_above+ sqft_above*floors, data = housingsub)
+summary(M37)
+ggplot(housingsub, aes(x=floors, y=sqft_above))+geom_boxplot()
+```
+### Comment: In this case, the boxplot shows that, with increasing number of floors, the average interior space above the ground increases. This means the increase in the number of floors have a positive association with the living space, at the meantime, the P-value of the floors*sqft_above is significant, which gives us strong evidence that the number of floors is effective in explaining the interior space above the ground.
+
+```{r}
+M38<- lm(formula = log(price) ~ bedrooms + sqft_living + floors +condition+ grade + sqft_above+ sqft_above*condition, data = housingsub)
+summary(M38)
+ggplot(housingsub, aes(x=condition, y=sqft_above))+geom_boxplot()
+```
+### Comment: In this case, the boxplot shows that, with increasing house condition index, the average living space changed slightly. This means the increase in the number of floors have minor effect in the living space size, so we should not include this interaction term in the model.
+
+```{r}
+M39<- lm(formula = log(price) ~ bedrooms  + sqft_living + floors +condition+ grade + sqft_above+ sqft_above*grade, data = housingsub)
+summary(M39)
+ggplot(housingsub, aes(x=grade, y=sqft_above))+geom_boxplot()
+```
+### Comment: In this case, the boxplot shows that, with increasing grades, the average interior space above the ground increases steadily. This means the increase in the grades have a direct, evident, positive association with the interior space above the ground, at the meantime, the P-value of the grade*sqft_above is significant, which gives us strong evidence that the grade is effective in explaining the interior space above the ground.
+
+
+### Mosaic plot: we need to do the mosaic plot: 
+```{r}
+table1<-table(housingsub$condition, housingsub$grade)
+mosaicplot(table1, xlab="condition ", ylab="grade ")
+```
+
+```{r}
+table2<-table(housingsub$floors, housingsub$grade)
+mosaicplot(table2, xlab="floors ", ylab="grade ")
+```
+
+```{r}
+table3<-table(housingsub$condition, housingsub$floors)
+mosaicplot(table3, xlab="condition ", ylab="floors ")
+```
+
+## Model 3: assuming both quantitative interaction term and categorical interaction term existed together
+### From the analysis of simple linear regression models above, we decided to add totally 3 interaction terms along with three numerical interaction terms mentioned earlier.
+```{r}
+#largest model 
+M3<- lm(formula = log(price) ~ bedrooms + sqft_living + floors + condition +
+          grade + sqft_above + 
+          sqft_above*bedrooms + 
+          bedrooms*sqft_living + 
+          sqft_living*sqft_above + 
+          sqft_living*grade + 
+          sqft_above*floors +
+          sqft_above*grade+ 
+          condition* grade+ 
+          floors*grade+ 
+          condition*floors, data = housingsub) 
+summary(M3) 
+```
+### We found that all three categorical-categorical interaction terms contains N/A values, so we cast them away
+
+### However, from the summary of Model 3 we see that many variables are no longer significant (with P-val < 0.05). Therefore, we need BSS to find the best subset of these variables.
+```{r}
+library(leaps)
+# why another BSS? there are many variables that are not significant in the largest model. We don't know which interaction to delete. We have to run another BSS. 
+BSShouse <- regsubsets(log(price) ~ bedrooms+ sqft_living + floors +condition + 
+          grade + sqft_above + 
+          sqft_above*bedrooms + 
+          bedrooms*sqft_living + 
+          sqft_living*sqft_above + 
+          sqft_living*grade + 
+          sqft_above*floors +
+          sqft_above*grade, data = housingsub, nvmax= 17, really.big=T) 
+plot(BSShouse, scale= "adjr2") 
+SUMMARY<- summary(BSShouse)
+coef(BSShouse, which.max(SUMMARY$adjr2)) 
+```  
+### From the BSS test, we found that there are 5 models with adjusted R^2 0.58. We choose the top 1 for analysis
+
+### Model 3 (FM1): 
+```{r}
+FM1 <- lm(log(price) ~ bedrooms + sqft_living + floors + condition + grade + sqft_above+ 
+          sqft_above*bedrooms  + 
+          bedrooms*sqft_living +           
+          sqft_living*sqft_above + 
+          sqft_living*grade, data = housingsub)
+summary(FM1)
+``` 
+
+### Model 3 (FM2): we found that the P-val for the floor is not very high, therefore, we cast floor away and construct a more simplified model.
+```{r}
+# exactly BSS TOLD US
+FM2<-lm(log(price) ~ bedrooms  + sqft_living + condition + grade + sqft_above + 
+          sqft_above*bedrooms  + 
+          bedrooms*sqft_living +           
+          sqft_living*sqft_above + 
+          sqft_living*grade, data = housingsub)
+summary(FM2)
+``` 
+
+### Use nest F-test to see if FM2 is Better than 
+```{r}
+anova(FM2,FM1) 
+```
+### By nest F-test, we found that the variable floors have P-val of 0.001674, this gives us the evidence that the variable floors in FM1 explains an evident amount of variance in house price. Therefore, we should include floors in the model, thus we choose FM1 as our third model.
+```{r}
+# here is our third model:
+M3 <- FM1
+```
+
+
+### Finally , we composed three different MLR models based on different hypothesis. In our final step, we will find the final model we want by considering the simlicity and comprehensiveness simutaneously.
+
+### we will firstly compare the adjusted R^2 of these three models
+```{r}
+summary(M1)$adj.r.squared
+summary(M2)$adj.r.squared
+summary(M3)$adj.r.squared
+```
+### We see that the R^2 of three models are approximately the same, so we need further analysis to determine which should be applied.
+
+### because M1 nested in M2, M2 nested in M3, we could use the Nested-F test to compare them
+```{r}
+anova(M1,M2,M3)
+```
+### From the test, we see that the model 2 has P-value of 0.02583, which is smaller than 0.05. Therefore, we have enough evidence to conclude that the Model 2 has evidently better performance than model 1. The Model 3, on the other hand, have P-value larger than 0.05, so we failed to prove that Model 3 explains house price better than model 2. Therefore, we recommend to use M2 for both simplicity and comprehensiveness consideration.
+
+## further model analysis (check if fulfill the 6 conditions) --> Model 2
+```{r}
+plot(M2$residual~M2$fitted.values)
+abline(h=0)
+summary(M2)   
+``` 
+### linearity, because the residuals does not have a certain pattern, so the predictors and response variable is linearly related, linearity is met.
+### Found which one is significant? see floor and conditions are not all significant, so we use Anova test to see if leave it or not.
+
+
+### The residual plot shows that the residual distributed approximatley half-half from the zero line, so the zero mean is met. Meanwhile, the variance of the residual is same for any fitted values, so the constant variance condition is also met. At last, we fit the variables in multiple linear regression model, and the residual plot and summary shows that the variables fit well in the model, so the linearity condition is met.
+
+```{r}
+qqnorm(
+  M1$residuals
+)
+qqline(M1$residuals)
+```
+### QQ plot indicates that the distribution of the errors of the model 1 is near the normal distribution despite the minor deviation caused by the outliers. The normality is met.
